@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, FileText, FileQuestion, FlaskConical, Layers, ClipboardList, BookOpen, Video, Globe, ChevronRight, Clock, Sparkles } from "lucide-react";
 import type { Resource, Subject } from "@/lib/types";
 import { getDeviceId } from "@/lib/utils";
-import { ResourceCard, ResourceSkeleton } from "@/components/ui";
+import { ResourceCard, ResourceSkeleton, ErrorBox } from "@/components/ui";
 import { useSavedIds } from "@/components/browser";
 
 const QUICK = [
@@ -26,17 +26,23 @@ function HomeInner() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [viewed, setViewed] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errRes, setErrRes] = useState(false);
+  const [errSub, setErrSub] = useState(false);
+  const [tick, setTick] = useState(0);
   const { ids: saved, toggle } = useSavedIds();
 
   useEffect(()=>{
-    Promise.all([
-      fetch("/api/resources?pageSize=6&sort=newest").then(r=>r.json()).catch(()=>({items:[]})),
-      fetch("/api/subjects").then(r=>r.json()).catch(()=>({items:[]})),
-      fetch(`/api/history?deviceId=${getDeviceId()}`).then(r=>r.json()).catch(()=>({items:[]})),
-    ]).then(([r, s, h])=>{
-      setRecent(r.items||[]); setSubjects((s.items||[]).slice(0,8)); setViewed((h.items||[]).slice(0,4));
-    }).finally(()=>setLoading(false));
-  },[]);
+    const ok = (r: Response) => { if (!r.ok) throw new Error("load"); return r.json(); };
+    fetch("/api/resources?pageSize=6&sort=newest").then(ok).then(j=>setRecent(j.items||[])).catch(()=>setErrRes(true));
+    fetch("/api/subjects").then(ok).then(j=>{
+      const list: Subject[] = j.items||[];
+      setSubjects([...list].sort((a,b)=>(b.resourceCount||0)-(a.resourceCount||0)).slice(0,8));
+    }).catch(()=>setErrSub(true));
+    fetch(`/api/history?deviceId=${getDeviceId()}`).then(ok).then(j=>setViewed((j.items||[]).slice(0,4))).catch(()=>setViewed([]))
+      .finally(()=>setLoading(false));
+  },[tick]);
+
+  const retry = () => { setLoading(true); setErrRes(false); setErrSub(false); setTick(t=>t+1); };
 
   return (
     <div>
@@ -74,6 +80,7 @@ function HomeInner() {
           <Link href="/resources?sort=newest" className="focus-ring inline-flex items-center gap-0.5 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">View all <ChevronRight size={14}/></Link>
         </div>
         {loading ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{Array.from({length:4}).map((_,i)=><ResourceSkeleton key={i}/>)}</div>
+        : errRes ? <div className="mt-3"><ErrorBox message="We couldn't load resources. Please try again." onRetry={retry} /></div>
         : recent.length===0 ? <p className="muted surface hairline mt-3 rounded-xl border p-6 text-center text-sm">No resources yet. <Link href="/add" className="text-blue-600 underline dark:text-blue-400">Add the first one</Link>.</p>
         : <div className="mt-3 grid gap-3 sm:grid-cols-2">{recent.map(r=><ResourceCard key={r.id} r={r} saved={saved.has(r.id)} onToggleSave={toggle}/>)}</div>}
       </section>
@@ -83,7 +90,9 @@ function HomeInner() {
           <h2 id="pop-sub" className="text-base font-bold">Popular subjects</h2>
           <Link href="/subjects" className="focus-ring inline-flex items-center gap-0.5 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">All subjects <ChevronRight size={14}/></Link>
         </div>
-        <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {loading ? <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">{Array.from({length:4}).map((_,i)=><div key={i} className="skeleton h-[104px] rounded-xl" aria-hidden />)}</div>
+        : errSub ? <div className="mt-3"><ErrorBox message="We couldn't load subjects. Please try again." onRetry={retry} /></div>
+        : <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {subjects.map(s=>(
             <li key={s.id}>
               <Link href={`/subjects/${s.id}`} className="surface hairline card-hover focus-ring block rounded-xl border p-3.5">
@@ -93,7 +102,7 @@ function HomeInner() {
               </Link>
             </li>
           ))}
-        </ul>
+        </ul>}
       </section>
 
       {viewed.length>0 && (

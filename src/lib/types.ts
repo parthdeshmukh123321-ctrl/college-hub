@@ -41,7 +41,7 @@ export type SortKey = "relevance"|"newest"|"oldest"|"updated"|"viewed";
 export interface ResourceFilters {
   q?: string; subjectId?: string; type?: string; semester?: string; year?: string;
   academicYear?: string; topic?: string; tag?: string; source?: string; examType?: string;
-  sort?: SortKey; status?: string; featured?: string;
+  sort?: SortKey; status?: string; featured?: string; types?: string[];
 }
 
 export function normalizeText(s: string): string {

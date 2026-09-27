@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, X, Archive, Star, Pencil, ExternalLink } from "lucide-react";
 import type { Resource } from "@/lib/types";
-import { Breadcrumbs, ErrorBox, EmptyState, TypeBadge } from "@/components/ui";
+import { Breadcrumbs, ErrorBox, EmptyState, TypeBadge, useStoredValue } from "@/components/ui";
 import { adminHeaders } from "@/lib/utils";
 
 export default function AdminResources() {
@@ -12,22 +12,36 @@ export default function AdminResources() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [tick, setTick] = useState(0);
+  const [adminFlag] = useStoredValue("crh_admin", "");
 
-  const load = () => {
-    setLoading(true); setError("");
+  useEffect(()=>{
+    if (adminFlag !== "1") return;
     fetch(`/api/resources?status=${status}&pageSize=50`, { headers: adminHeaders() }).then(async r=>{
       if (r.status===403) throw new Error("Admin access required. Unlock in Settings.");
       if (!r.ok) throw new Error("load");
-      const j = await r.json(); setItems(j.items||[]);
+      const j = await r.json(); setItems(j.items||[]); setError("");
     }).catch((e)=>setError(e.message||"We couldn't load resources.")).finally(()=>setLoading(false));
-  };
-  useEffect(load,[status]);
+  },[status, tick, adminFlag]);
+
+  const load = () => { setLoading(true); setError(""); setTick(t=>t+1); };
 
   const act = async (id: string, patch: Record<string, unknown>, label: string) => {
     if (patch.status==="ARCHIVED" && !confirm("Archive this resource?")) return;
     const res = await fetch(`/api/resources/${id}`, { method:"PATCH", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify(patch) });
     if (res.ok) { setMsg(`${label} done.`); load(); } else setMsg("Action failed.");
   };
+
+  if (adminFlag !== "1") {
+    return (
+      <div>
+        <Breadcrumbs items={[{label:"Admin",href:"/admin"},{label:"Resource moderation"}]} />
+        <h1 className="text-xl font-bold tracking-tight">Resource moderation</h1>
+        <div className="mt-3"><ErrorBox message="Admin access required. Unlock in Settings." /></div>
+        <Link href="/settings" className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-gray-900">Go to Settings</Link>
+      </div>
+    );
+  }
 
   return (
     <div>

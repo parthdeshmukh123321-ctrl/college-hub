@@ -16,6 +16,7 @@ export default function DetailClient({ id }: { id: string }) {
   const [reason, setReason] = useState<string>(REPORT_REASONS[0]);
   const [reportDesc, setReportDesc] = useState("");
   const [reportMsg, setReportMsg] = useState("");
+  const [reporting, setReporting] = useState(false);
   const { ids: saved, toggle } = useSavedIds();
 
   useEffect(()=>{
@@ -34,11 +35,15 @@ export default function DetailClient({ id }: { id: string }) {
   },[id]);
 
   const submitReport = async () => {
-    setReportMsg("");
-    const res = await fetch("/api/reports", { method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ resourceId: id, reason, description: reportDesc, reporterId: getDeviceId() }) });
-    if (res.ok) { setReportMsg("Thanks — our moderators will review this report."); setReportDesc(""); }
-    else { const j = await res.json().catch(()=>({})); setReportMsg(j.error || "Couldn't submit report."); }
+    if (reporting) return;
+    setReporting(true); setReportMsg("");
+    try {
+      const res = await fetch("/api/reports", { method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ resourceId: id, reason, description: reportDesc, reporterId: getDeviceId() }) });
+      if (res.ok) { setReportMsg("Thanks — our moderators will review this report."); setReportDesc(""); }
+      else { const j = await res.json().catch(()=>({})); setReportMsg(j.error || "Couldn't submit report."); }
+    } catch { setReportMsg("Couldn't submit report. Please try again."); }
+    finally { setReporting(false); }
   };
 
   if (state === "loading") return <div className="space-y-3"><div className="skeleton h-8 w-2/3 rounded" /><div className="skeleton h-40 rounded-xl" /><div className="skeleton h-24 rounded-xl" /></div>;
@@ -99,7 +104,6 @@ export default function DetailClient({ id }: { id: string }) {
             <div className="mt-3 flex flex-wrap gap-2">
               <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={()=>fetch(`/api/resources/${id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event:"OPEN_EXTERNAL"})}).catch(()=>{})}
                 className="focus-ring inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"><ExternalLink size={15}/>Open Resource</a>
-              <button onClick={()=>setReportOpen(v=>!v)} className="focus-ring muted inline-flex items-center gap-1.5 rounded-lg border hairline px-3 py-2 text-sm"><Flag size={14}/>Report broken link</button>
             </div>
             <p className="muted mt-2 text-xs">External links open in a new tab. Always verify content before relying on it.</p>
           </div>
@@ -107,6 +111,7 @@ export default function DetailClient({ id }: { id: string }) {
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t hairline pt-3">
           <SaveButton saved={saved.has(r.id)} onToggle={()=>toggle(r.id, !saved.has(r.id))} />
           <Link href={`/add?id=${r.id}`} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border hairline px-3 py-1.5 text-sm font-medium surface hover:border-gray-400"><Pencil size={14}/>Suggest edit</Link>
+          <button onClick={()=>setReportOpen(v=>!v)} className="focus-ring muted inline-flex items-center gap-1.5 rounded-lg border hairline px-3 py-1.5 text-sm"><Flag size={14}/>Report</button>
           <span className="muted ml-auto inline-flex items-center gap-3 text-xs"><span className="inline-flex items-center gap-1"><Eye size={13}/>{r.viewCount} views</span><span>{r.downloadCount} downloads</span></span>
         </div>
       </div>
@@ -121,7 +126,7 @@ export default function DetailClient({ id }: { id: string }) {
               <input id="rep-desc" value={reportDesc} onChange={e=>setReportDesc(e.target.value)} placeholder="What's wrong?" className="focus-ring surface hairline w-full rounded-lg border px-2.5 py-2 text-sm" /></div>
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <button onClick={submitReport} className="focus-ring rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-gray-900">Submit report</button>
+            <button onClick={submitReport} disabled={reporting} className="focus-ring rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">{reporting?"Submitting…":"Submit report"}</button>
             {reportMsg && <p className="text-sm" role="status">{reportMsg}</p>}
           </div>
         </div>

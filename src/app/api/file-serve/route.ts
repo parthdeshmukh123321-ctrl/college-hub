@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, files, resources } from "@/lib/repo";
+import { db, files, resources, adminKeyOk } from "@/lib/repo";
 import { eq } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
@@ -19,6 +19,12 @@ export async function GET(req: Request) {
       }
     }
     if (!f) return NextResponse.json({ error: "File not found." }, { status: 404 });
+    if (!adminKeyOk(req)) {
+      // Files attached to non-published/private resources stay hidden.
+      const linked = await db.select({ status: resources.status, visibility: resources.visibility }).from(resources).where(eq(resources.fileId, f.id)).limit(1);
+      if (linked.length && (linked[0].status !== "PUBLISHED" || linked[0].visibility === "PRIVATE"))
+        return NextResponse.json({ error: "File not found." }, { status: 404 });
+    }
     const full = path.join(process.cwd(), "public", "uploads", path.basename(f.storagePath));
     const buf = await fs.readFile(full);
     const ab = new ArrayBuffer(buf.length);

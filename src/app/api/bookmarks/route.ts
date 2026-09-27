@@ -32,6 +32,8 @@ export async function POST(req: Request) {
     const d = device(req, body);
     const resourceId = String(body.resourceId||"");
     if (!resourceId) return NextResponse.json({ error: "resourceId required." }, { status: 400 });
+    const target = await db.select({ id: resources.id }).from(resources).where(eq(resources.id, resourceId)).limit(1);
+    if (!target.length) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     const ex = await db.select().from(bookmarks).where(and(eq(bookmarks.deviceId,d), eq(bookmarks.resourceId,resourceId))).limit(1);
     if (!ex.length) await db.insert(bookmarks).values({ id: uid("bm"), deviceId: d, resourceId }).onConflictDoNothing();
     return NextResponse.json({ ok: true, saved: true });

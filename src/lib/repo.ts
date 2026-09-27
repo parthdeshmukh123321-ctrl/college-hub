@@ -1,11 +1,13 @@
 import { db } from "@/db";
 import { subjects, topics, resources, bookmarks, history, reports, timetableEntries, calendarEvents, exams, notices, analyticsEvents, appMeta, files } from "@/db/schema";
-import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, ne } from "drizzle-orm";
 import { tokenize, scoreResource, sortResources } from "./search";
 import { normalizeTags, type ResourceFilters } from "./types";
 
 export function adminKeyOk(req: Request): boolean {
-  const expected = process.env.ADMIN_KEY || "admin123";
+  // Fail closed in production: no default key unless ADMIN_KEY is explicitly set.
+  const expected = process.env.ADMIN_KEY || (process.env.NODE_ENV === "production" ? "" : "admin123");
+  if (!expected) return false;
   return req.headers.get("x-admin-key") === expected;
 }
 
@@ -21,7 +23,7 @@ export async function ensureSeeded() {
       for (const r of SEED_RESOURCES) {
         await db.insert(resources).values({
           ...r, tags: r.tags, fileId: "", fileName: "", fileMime: "", fileSize: 0,
-          thumbnail: "", author: r.author, contributorId: "seed", viewCount: Math.floor(Math.random()*40),
+          thumbnail: "", author: r.author, contributorId: "seed", viewCount: 0,
           downloadCount: 0, isFeatured: (r as {isFeatured?:boolean}).isFeatured ?? false,
         } as never).onConflictDoNothing();
       }
@@ -45,14 +47,16 @@ export async function listSubjectsWithCounts() {
 
 export interface ListResult { items: Record<string, unknown>[]; total: number; }
 
-export async function queryResources(f: ResourceFilters & { page?: number; pageSize?: number; includeNonPublished?: boolean }): Promise<ListResult> {
+export async function queryResources(f: ResourceFilters & { page?: number; pageSize?: number; includeNonPublished?: boolean; excludePrivate?: boolean }): Promise<ListResult> {
   const page = Math.max(1, Number(f.page) || 1);
   const pageSize = Math.min(50, Math.max(1, Number(f.pageSize) || 24));
   const conds: ReturnType<typeof eq>[] = [];
   if (!f.includeNonPublished) conds.push(eq(resources.status, "PUBLISHED"));
   else if (f.status) conds.push(eq(resources.status, f.status));
+  if (f.excludePrivate) conds.push(ne(resources.visibility, "PRIVATE"));
   if (f.subjectId) conds.push(eq(resources.subjectId, f.subjectId));
   if (f.type) conds.push(eq(resources.resourceType, f.type));
+  if (f.types && f.types.length) conds.push(inArray(resources.resourceType, f.types));
   if (f.semester) conds.push(eq(resources.semester, Number(f.semester)));
   if (f.year) conds.push(eq(resources.year, Number(f.year)));
   if (f.academicYear) conds.push(eq(resources.academicYear, f.academicYear));

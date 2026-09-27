@@ -10,15 +10,15 @@ export default function AdminReports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
-  const load = () => {
-    setLoading(true); setError("");
+  const [tick, setTick] = useState(0);
+  useEffect(()=>{
     fetch("/api/reports", { headers: adminHeaders() }).then(async r=>{
       if (r.status===403) throw new Error("Admin access required. Unlock in Settings.");
       if (!r.ok) throw new Error("load");
-      const j = await r.json(); setItems(j.items||[]);
+      const j = await r.json(); setItems(j.items||[]); setError("");
     }).catch((e)=>setError(e.message||"We couldn't load reports.")).finally(()=>setLoading(false));
-  };
-  useEffect(load,[]);
+  },[tick]);
+  const load = () => { setLoading(true); setError(""); setTick(t=>t+1); };
   const resolve = async (rep: Report, status: string, clearBroken = false) => {
     const res = await fetch(`/api/reports?id=${rep.id}`, { method:"PATCH", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify({ status, clearBroken, resourceId: rep.resourceId }) });
     if (res.ok) { setMsg(`Report ${status.toLowerCase()}.`); load(); } else setMsg("Action failed.");

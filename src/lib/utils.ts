@@ -25,19 +25,30 @@ export function formatBytes(n: number): string {
   if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
   return `${(n/1024/1024).toFixed(2)} MB`;
 }
+export function safeGet(key: string): string | null {
+  try { return typeof window === "undefined" ? null : localStorage.getItem(key); }
+  catch { return null; }
+}
+export function safeSet(key: string, value: string): void {
+  try { if (typeof window !== "undefined") localStorage.setItem(key, value); } catch {}
+}
+export function safeDel(key: string): void {
+  try { if (typeof window !== "undefined") localStorage.removeItem(key); } catch {}
+}
+let memDeviceId = "";
 export function getDeviceId(): string {
   if (typeof window === "undefined") return "server";
-  let id = localStorage.getItem("crh_device_id");
-  if (!id) { id = uid("dev"); localStorage.setItem("crh_device_id", id); }
+  let id = safeGet("crh_device_id");
+  if (!id) { id = memDeviceId || (memDeviceId = uid("dev")); safeSet("crh_device_id", id); }
   return id;
 }
 export function isAdmin(): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem("crh_admin") === "1";
+  return safeGet("crh_admin") === "1";
 }
 export function adminHeaders(): Record<string,string> {
   if (typeof window === "undefined") return {};
-  const key = localStorage.getItem("crh_admin_key") || "";
+  const key = safeGet("crh_admin_key") || "";
   return key ? { "x-admin-key": key } : {};
 }
 export function cx(...parts: (string|false|undefined|null)[]): string {

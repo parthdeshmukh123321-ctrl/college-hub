@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, timetableEntries, calendarEvents, exams, notices, adminKeyOk, ensureSeeded } from "@/lib/repo";
 import { uid } from "@/lib/utils";
+import { isValidHttpUrl } from "@/lib/validation";
 import { eq } from "drizzle-orm";
 
 const TABLES = { timetable: timetableEntries, calendar: calendarEvents, exams, notices } as const;
@@ -32,6 +33,8 @@ export async function POST(req: Request) {
     const u = new URL(req.url);
     const kind = u.searchParams.get("kind") || "";
     const body = await req.json().catch(()=>({}));
+    if (body.sourceUrl && String(body.sourceUrl).trim() !== "" && !isValidHttpUrl(String(body.sourceUrl)))
+      return NextResponse.json({ error: "Source URL must be a valid http(s) URL." }, { status: 400 });
     const id = uid("ac");
     if (kind === "timetable") {
       if (!body.day || !body.startTime || !body.endTime || !body.subject) return NextResponse.json({ error: "Day, time and subject are required." }, { status: 400 });

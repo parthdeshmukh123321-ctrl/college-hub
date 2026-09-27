@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useReducer, useState, useSyncExternalStore } from "react";
 import { Bookmark, BookmarkCheck, ExternalLink, FileText, Eye, Download, Clock, AlertTriangle, BadgeCheck, ChevronRight, SearchX, Inbox } from "lucide-react";
 import { RESOURCE_TYPE_LABELS, type Resource } from "@/lib/types";
-import { cx, formatDate, timeAgo } from "@/lib/utils";
+import { cx, formatDate, timeAgo, safeGet, safeSet } from "@/lib/utils";
 
 export const TYPE_COLORS: Record<string,string> = {
   NOTE:"bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-900",
@@ -156,10 +156,29 @@ export function MetaRow({ label, value }: { label: string; value: React.ReactNod
   return <div className="flex items-start justify-between gap-4 border-b hairline py-2.5 text-sm last:border-0"><dt className="muted shrink-0">{label}</dt><dd className="text-right font-medium break-words">{value}</dd></div>;
 }
 
+// Hydration-safe localStorage hook: the server snapshot always equals the
+// fallback (so SSR HTML matches first client render), then the live value
+// is adopted after hydration with no mismatch error and no effect setState.
+export function useStoredValue(key: string, fallback: string): [string, (v: string) => void] {
+  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const subscribe = useCallback((cb: () => void) => {
+    window.addEventListener("storage", cb);
+    return () => window.removeEventListener("storage", cb);
+  }, []);
+  const getSnapshot = useCallback(() => safeGet(key) ?? fallback, [key, fallback]);
+  const getServerSnapshot = useCallback(() => fallback, [fallback]);
+  const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const set = useCallback((v: string) => { safeSet(key, v); bump(); }, [key]);
+  return [value, set];
+}
+
 export function useLocalState<T>(key: string, initial: T): [T, (v:T)=>void] {
-  const [val, setVal] = useState<T>(initial);
-  useEffect(()=>{ try { const raw = localStorage.getItem(key); if (raw!==null) setVal(JSON.parse(raw)); } catch {} /* eslint-disable-next-line */ },[key]);
-  const set = (v: T) => { setVal(v); try { localStorage.setItem(key, JSON.stringify(v)); } catch {} };
+  const encoded = useMemo(() => JSON.stringify(initial), [initial]);
+  const [raw, setRaw] = useStoredValue(key, encoded);
+  const val = useMemo(() => {
+    try { return JSON.parse(raw) as T; } catch { return initial; }
+  }, [raw, initial]);
+  const set = useCallback((v: T) => setRaw(JSON.stringify(v)), [setRaw]);
   return [val, set];
 }
 export { formatDate };

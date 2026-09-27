@@ -1,40 +1,41 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Download, Upload, Trash2, ShieldCheck, Sun, Moon, Monitor } from "lucide-react";
-import { Breadcrumbs } from "@/components/ui";
-import { getDeviceId, adminHeaders } from "@/lib/utils";
+import { Breadcrumbs, useStoredValue } from "@/components/ui";
+import { getDeviceId, adminHeaders, safeDel } from "@/lib/utils";
 import { APP_VERSION, SCHEMA_VERSION } from "@/lib/types";
 
 export default function SettingsPage() {
-  const [theme, setTheme] = useState("system");
-  const [view, setView] = useState("grid");
+  const [theme, setThemeStored] = useStoredValue("crh_theme", "system");
+  const [viewRaw, setViewStored] = useStoredValue("crh_view", '"grid"');
+  const [adminKey, setAdminKey] = useStoredValue("crh_admin_key", "");
+  const [adminFlag, setAdminFlag] = useStoredValue("crh_admin", "");
+  const isAdmin = adminFlag === "1";
+  let view = "grid";
+  try { view = JSON.parse(viewRaw) || "grid"; } catch { view = "grid"; }
   const [msg, setMsg] = useState("");
-  const [adminKey, setAdminKey] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(()=>{
-    setTheme(localStorage.getItem("crh_theme")||"system");
-    try { setView(JSON.parse(localStorage.getItem("crh_view")||'"grid"')); } catch {}
-    setIsAdmin(localStorage.getItem("crh_admin")==="1");
-    setAdminKey(localStorage.getItem("crh_admin_key")||"");
-  },[]);
 
   const applyTheme = (t: string) => {
-    setTheme(t); localStorage.setItem("crh_theme", t);
+    setThemeStored(t);
     const dark = t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.classList.toggle("dark", dark);
   };
+  const applyView = (v: string) => setViewStored(JSON.stringify(v));
 
   const doExport = async () => {
     setMsg("");
-    const res = await fetch(`/api/data?deviceId=${getDeviceId()}`);
-    const j = await res.json();
-    const blob = new Blob([JSON.stringify(j, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `crh-export-${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    setMsg("Export downloaded.");
+    try {
+      const res = await fetch(`/api/data?deviceId=${getDeviceId()}`);
+      const j = await res.json();
+      if (!res.ok) { setMsg(j.error || "Export failed. Please try again."); return; }
+      const blob = new Blob([JSON.stringify(j, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `crh-export-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setMsg("Export downloaded.");
+    } catch { setMsg("Export failed. Please try again."); }
   };
 
   const doImport = async (f: File|null) => {
@@ -46,22 +47,23 @@ export default function SettingsPage() {
       const res = await fetch("/api/data?mode=merge", { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify(data) });
       const j = await res.json();
       if (!res.ok) { setMsg(j.error + (j.errors?`: ${j.errors.slice(0,3).join("; ")}`:"")); return; }
-      setMsg(`Import complete: ${j.imported.resources} resources, ${j.imported.subjects} subjects.`);
+      const c = j.imported || {};
+      const parts = ["resources","subjects","topics","timetable","calendar","exams","notices"].map(k=>`${c[k]||0} ${k}`);
+      setMsg(`Import complete: ${parts.join(", ")}.`);
     } catch { setMsg("Invalid JSON file."); }
   };
 
   const unlockAdmin = async () => {
-    localStorage.setItem("crh_admin_key", adminKey);
     const res = await fetch("/api/admin", { headers: { "x-admin-key": adminKey } });
-    if (res.ok) { localStorage.setItem("crh_admin","1"); setIsAdmin(true); setMsg("Admin unlocked."); }
-    else { localStorage.removeItem("crh_admin"); setIsAdmin(false); setMsg("Invalid admin key."); }
+    if (res.ok) { setAdminFlag("1"); setMsg("Admin unlocked."); }
+    else { setAdminFlag(""); setMsg("Invalid admin key."); }
   };
-  const lockAdmin = () => { localStorage.removeItem("crh_admin"); localStorage.removeItem("crh_admin_key"); setIsAdmin(false); setAdminKey(""); setMsg("Admin locked."); };
+  const lockAdmin = () => { setAdminFlag(""); setAdminKey(""); setMsg("Admin locked."); };
 
   const resetLocal = () => {
     if (!confirm("Reset local preferences (theme, view, device bookmarks cache)? Server data is kept.")) return;
-    localStorage.removeItem("crh_theme"); localStorage.removeItem("crh_view");
-    applyTheme("system"); setView("grid"); setMsg("Local preferences reset.");
+    safeDel("crh_theme"); safeDel("crh_view");
+    applyTheme("system"); applyView("grid"); setMsg("Local preferences reset.");
   };
 
   return (
@@ -85,7 +87,7 @@ export default function SettingsPage() {
         <h2 id="s-pref" className="text-sm font-bold">Resource preferences</h2>
         <div className="mt-2.5 flex flex-wrap items-center gap-3">
           <label className="text-sm">Default view
-            <select value={view} onChange={e=>{setView(e.target.value); localStorage.setItem("crh_view", JSON.stringify(e.target.value));}} className="focus-ring surface hairline ml-2 rounded-lg border px-2.5 py-2 text-sm">
+            <select value={view} onChange={e=>applyView(e.target.value)} className="focus-ring surface hairline ml-2 rounded-lg border px-2.5 py-2 text-sm">
               <option value="grid">Grid</option><option value="list">List</option>
             </select></label>
         </div>
@@ -105,7 +107,7 @@ export default function SettingsPage() {
 
       <section className="surface hairline mt-3 rounded-xl border p-4" aria-labelledby="s-admin">
         <h2 id="s-admin" className="flex items-center gap-1.5 text-sm font-bold"><ShieldCheck size={15}/>Admin access</h2>
-        <p className="muted mt-1 text-[13px]">Admins moderate resources, resolve reports and manage academic data. Default dev key is <code className="rounded bg-gray-100 px-1 dark:bg-white/10">admin123</code> unless ADMIN_KEY is set.</p>
+        <p className="muted mt-1 text-[13px]">Admins moderate resources, resolve reports and manage academic data. The admin key is set by the site owner via the ADMIN_KEY environment variable.</p>
         {isAdmin ? (
           <div className="mt-2.5 flex items-center gap-2">
             <span className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Unlocked</span>
@@ -125,7 +127,7 @@ export default function SettingsPage() {
         <dl className="mt-1 text-sm">
           <div className="flex justify-between border-b hairline py-2"><dt className="muted">Version</dt><dd className="font-medium">{APP_VERSION}</dd></div>
           <div className="flex justify-between border-b hairline py-2"><dt className="muted">Schema</dt><dd className="font-medium">v{SCHEMA_VERSION}</dd></div>
-          <div className="flex justify-between border-b hairline py-2"><dt className="muted">Device ID</dt><dd className="font-mono text-xs">{typeof window!=="undefined"?getDeviceId():"—"}</dd></div>
+          <div className="flex justify-between border-b hairline py-2"><dt className="muted">Device ID</dt><dd className="font-mono text-xs" suppressHydrationWarning>{typeof window!=="undefined"?getDeviceId():"—"}</dd></div>
           <div className="flex justify-between py-2"><dt className="muted">Privacy</dt><dd className="max-w-[60%] text-right text-[13px]">Bookmarks & history are stored per-device. No location or personal files are collected.</dd></div>
         </dl>
       </section>

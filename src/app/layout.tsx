@@ -5,7 +5,7 @@ import { AppShell } from "@/components/shell";
 export const metadata: Metadata = {
   title: { default: "College Resource Hub", template: "%s · College Resource Hub" },
   description: "Find the notes, PYQs, lab manuals and academic resources you need.",
-  metadataBase: new URL("http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
   openGraph: { title: "College Resource Hub", description: "Search notes, PYQs, lab manuals and academic resources.", type: "website" },
 };
 

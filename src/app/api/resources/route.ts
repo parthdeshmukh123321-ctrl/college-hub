@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { db, resources, ensureSeeded, queryResources, findDuplicates, adminKeyOk } from "@/lib/repo";
+import { db, resources, subjects, topics, files, ensureSeeded, queryResources, findDuplicates, adminKeyOk } from "@/lib/repo";
 import { validateResourcePayload, isValidHttpUrl } from "@/lib/validation";
-import { normalizeTags } from "@/lib/types";
+import { normalizeTags, RESOURCE_TYPES, STATUS_VALUES } from "@/lib/types";
+import { rateLimitOk } from "@/lib/rateLimit";
 import { uid } from "@/lib/utils";
 import { eq } from "drizzle-orm";
 
@@ -11,19 +12,21 @@ export async function GET(req: Request) {
     const u = new URL(req.url);
     const sp = u.searchParams;
     const isAdmin = adminKeyOk(req);
+    // Non-admins always see published-only; the status filter is admin-only.
+    const rawStatus = sp.get("status") || "";
+    const status = isAdmin && (STATUS_VALUES as readonly string[]).includes(rawStatus) ? rawStatus : "";
+    const rawTypes = (sp.get("types") || "").split(",").map(s=>s.trim().toUpperCase())
+      .filter(s=>(RESOURCE_TYPES as readonly string[]).includes(s));
     const data = await queryResources({
       q: sp.get("q") || "", subjectId: sp.get("subjectId") || "", type: sp.get("type") || "",
       semester: sp.get("semester") || "", year: sp.get("year") || "", academicYear: sp.get("academicYear") || "",
       topic: sp.get("topic") || "", tag: sp.get("tag") || "", source: sp.get("source") || "",
       examType: sp.get("examType") || "", sort: (sp.get("sort") as never) || undefined,
-      status: sp.get("status") || "", featured: sp.get("featured") || "",
+      status, types: rawTypes.length ? rawTypes : undefined, featured: sp.get("featured") || "",
       page: Number(sp.get("page")) || 1, pageSize: Number(sp.get("pageSize")) || 24,
-      includeNonPublished: isAdmin || !!sp.get("status"),
+      includeNonPublished: isAdmin, excludePrivate: !isAdmin,
     });
-    // hide private unless admin
-    let items = data.items;
-    if (!isAdmin) items = items.filter((r)=> (r as {visibility:string}).visibility !== "PRIVATE");
-    return NextResponse.json({ ...data, items, page: Number(sp.get("page"))||1, pageSize: Number(sp.get("pageSize"))||24 });
+    return NextResponse.json({ ...data, page: Number(sp.get("page"))||1, pageSize: Number(sp.get("pageSize"))||24 });
   } catch (e) { console.error(e); return NextResponse.json({ error: "We couldn't load resources. Please try again." }, { status: 500 }); }
 }
 
@@ -38,7 +41,20 @@ export async function POST(req: Request) {
     if (payload.url) payload.url = String(payload.url).trim();
     const { ok, errors } = validateResourcePayload(payload);
     if (!ok) return NextResponse.json({ error: "Validation failed", errors }, { status: 400 });
+    if (!rateLimitOk(req, "resources-post", 60, 60_000)) return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     if (payload.sourceType === "FILE" && !payload.fileId) return NextResponse.json({ error: "Validation failed", errors: { file: "Upload a file first." } }, { status: 400 });
+    if (payload.subjectId) {
+      const s = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, String(payload.subjectId))).limit(1);
+      if (!s.length) return NextResponse.json({ error: "Validation failed", errors: { subjectId: "Subject not found." } }, { status: 400 });
+    }
+    if (payload.topicId) {
+      const t = await db.select({ id: topics.id }).from(topics).where(eq(topics.id, String(payload.topicId))).limit(1);
+      if (!t.length) return NextResponse.json({ error: "Validation failed", errors: { topicId: "Topic not found." } }, { status: 400 });
+    }
+    if (payload.sourceType === "FILE" && payload.fileId) {
+      const fl = await db.select({ id: files.id }).from(files).where(eq(files.id, String(payload.fileId))).limit(1);
+      if (!fl.length) return NextResponse.json({ error: "Validation failed", errors: { file: "Upload a file first." } }, { status: 400 });
+    }
     const dups = await findDuplicates(String(payload.title), (payload.subjectId as string)||null, payload.year?Number(payload.year):null, String(payload.url||""));
     const isAdmin = adminKeyOk(req);
     const id = uid("res");

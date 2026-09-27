@@ -3,7 +3,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, Bookmark, Clock, FileText, FlaskConical, GraduationCap, Home, Layers, Library, Menu, Moon, NotebookPen, Plus, Search, Settings, ShieldCheck, Sun, X, CalendarDays, FileQuestion, Microscope, ClipboardList } from "lucide-react";
-import { cx, getDeviceId } from "@/lib/utils";
+import { cx, getDeviceId, safeGet } from "@/lib/utils";
+import { useStoredValue } from "./ui";
 
 type Theme = "light"|"dark"|"system";
 function applyTheme(t: Theme) {
@@ -13,14 +14,20 @@ function applyTheme(t: Theme) {
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("system");
-  useEffect(()=>{ const s = (localStorage.getItem("crh_theme") as Theme) || "system"; setTheme(s); applyTheme(s);
+  const [stored, setStored] = useStoredValue("crh_theme", "system");
+  const theme = (stored === "light" || stored === "dark" ? stored : "system") as Theme;
+  useEffect(()=>{
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const fn = () => { const cur = (localStorage.getItem("crh_theme") as Theme)||"system"; if (cur==="system") applyTheme("system"); };
+    const fn = () => { if ((safeGet("crh_theme") || "system") === "system") applyTheme("system"); };
     mq.addEventListener("change", fn); return ()=>mq.removeEventListener("change", fn);
   },[]);
-  const set = (t: Theme) => { setTheme(t); localStorage.setItem("crh_theme", t); applyTheme(t); };
+  const set = (t: Theme) => { setStored(t); applyTheme(t); };
   return { theme, set };
+}
+
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
 const NAV = [
@@ -42,12 +49,13 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
   const router = useRouter();
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(()=>{ if (open) { setQ(""); setTimeout(()=>inputRef.current?.focus(), 30); } },[open]);
+  const close = useCallback(()=>{ setQ(""); onClose(); },[onClose]);
+  useEffect(()=>{ if (open) { const t = setTimeout(()=>inputRef.current?.focus(), 30); return ()=>clearTimeout(t); } },[open]);
   useEffect(()=>{
     if (!open) return;
-    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("keydown", fn); return ()=>window.removeEventListener("keydown", fn);
-  },[open, onClose]);
+  },[open, close]);
   if (!open) return null;
   const cmds = [
     { label:"Search resources", hint:"Go to search", run:()=>router.push(q?`/search?q=${encodeURIComponent(q)}`:"/search") },
@@ -60,19 +68,20 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
     { label:"Open academic", hint:"Timetable & exams", run:()=>router.push("/academic") },
     { label:"Open admin", hint:"Moderation", run:()=>router.push("/admin") },
   ].filter(c=>!q || c.label.toLowerCase().includes(q.toLowerCase()));
+  const submit = () => { const first = cmds[0]; close(); if (first) first.run(); else router.push(`/search?q=${encodeURIComponent(q)}`); };
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command search" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command search" onClick={close}>
       <div className="surface hairline w-full max-w-lg overflow-hidden rounded-xl border shadow-2xl" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b hairline px-4 py-3">
           <Search size={16} className="muted" aria-hidden />
           <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} placeholder="Search resources or jump to…" className="w-full bg-transparent text-sm outline-none placeholder:text-gray-400"
-            onKeyDown={e=>{ if(e.key==="Enter"){ const first = cmds[0]; if(first){onClose(); first.run();} } }} aria-label="Command search input" />
+            onKeyDown={e=>{ if(e.key==="Enter") submit(); }} aria-label="Command search input" />
           <kbd className="muted hidden rounded border hairline px-1.5 py-0.5 text-[10px] sm:block">ESC</kbd>
         </div>
         <ul className="max-h-72 overflow-auto p-1.5" role="listbox" aria-label="Commands">
           {cmds.map(c=>(
             <li key={c.label}>
-              <button onClick={()=>{onClose(); c.run();}} className="focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-white/5">
+              <button onClick={()=>{close(); c.run();}} className="focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-white/5">
                 <span className="font-medium">{c.label}</span><span className="muted text-xs">{c.hint}</span>
               </button>
             </li>
@@ -91,10 +100,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [palette, setPalette] = useState(false);
   const [headerQ, setHeaderQ] = useState("");
   const { theme, set } = useTheme();
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(()=>{ getDeviceId(); setIsAdmin(localStorage.getItem("crh_admin")==="1"); },[]);
+  const [adminFlag] = useStoredValue("crh_admin", "");
+  const isAdmin = adminFlag === "1";
+  useEffect(()=>{ getDeviceId(); },[]);
 
-  const openSearch = useCallback(()=>setPalette(true),[]);
+  const openSearch = useCallback(()=>{ setMobileOpen(false); setPalette(true); },[]);
   useEffect(()=>{
     const fn = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -105,7 +115,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", fn); return ()=>window.removeEventListener("keydown", fn);
   },[openSearch, router]);
 
-  useEffect(()=>{ setMobileOpen(false); },[pathname]);
+  useEffect(()=>{
+    if (!mobileOpen) return;
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", fn); return ()=>window.removeEventListener("keydown", fn);
+  },[mobileOpen]);
 
   const cycleTheme = () => set(theme==="light"?"dark":theme==="dark"?"system":"light");
 
@@ -131,11 +145,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="ml-auto flex items-center gap-1.5">
             <button onClick={openSearch} className="focus-ring rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-white/5 md:hidden" aria-label="Search"><Search size={19}/></button>
-            <button onClick={cycleTheme} className="focus-ring rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-white/5" aria-label={`Theme: ${theme}. Activate to change.`} title={`Theme: ${theme}`}>
+            <button onClick={cycleTheme} suppressHydrationWarning className="focus-ring rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-white/5" aria-label={`Theme: ${theme}. Activate to change.`} title={`Theme: ${theme}`}>
               {theme==="dark" ? <Moon size={19}/> : theme==="light" ? <Sun size={19}/> : <span className="flex items-center gap-1 text-xs font-semibold muted"><Sun size={15}/>Auto</span>}
             </button>
             <Link href="/add" className="focus-ring hidden items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700 sm:inline-flex"><Plus size={15} aria-hidden />Add Resource</Link>
-            {isAdmin && <Link href="/admin" className="focus-ring hidden items-center gap-1 rounded-lg border hairline px-2.5 py-2 text-sm font-medium sm:inline-flex" title="Admin"><ShieldCheck size={15} aria-hidden /></Link>}
+            {isAdmin && <Link href="/admin" suppressHydrationWarning className="focus-ring hidden items-center gap-1 rounded-lg border hairline px-2.5 py-2 text-sm font-medium sm:inline-flex" title="Admin"><ShieldCheck size={15} aria-hidden /></Link>}
           </div>
         </div>
         <div className="border-t hairline px-3 py-2 md:hidden">
@@ -155,23 +169,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav><ul className="space-y-0.5">
             <li className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider muted">Browse</li>
             {NAV.slice(0,7).map(n=>(
-              <li key={n.href}><Link href={n.href} aria-current={pathname===n.href?"page":undefined}
-                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname===n.href ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5", (n as {accent?:boolean}).accent && "font-semibold text-blue-700 dark:text-blue-300")}>
+              <li key={n.href}><Link href={n.href} aria-current={isActivePath(pathname,n.href)?"page":undefined}
+                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", isActivePath(pathname,n.href) ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5", (n as {accent?:boolean}).accent && "font-semibold text-blue-700 dark:text-blue-300")}>
                 <n.icon size={16} aria-hidden />{n.label}</Link></li>
             ))}
             <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider muted">Personal</li>
             {NAV.slice(7,9).map(n=>(
-              <li key={n.href}><Link href={n.href} aria-current={pathname===n.href?"page":undefined}
-                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname===n.href ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5")}>
+              <li key={n.href}><Link href={n.href} aria-current={isActivePath(pathname,n.href)?"page":undefined}
+                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", isActivePath(pathname,n.href) ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5")}>
                 <n.icon size={16} aria-hidden />{n.label}</Link></li>
             ))}
             <li className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider muted">More</li>
             {NAV.slice(9).map(n=>(
-              <li key={n.href}><Link href={n.href} aria-current={pathname===n.href?"page":undefined}
-                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname===n.href ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5", (n as {accent?:boolean}).accent && "font-semibold text-blue-700 dark:text-blue-300")}>
+              <li key={n.href}><Link href={n.href} aria-current={isActivePath(pathname,n.href)?"page":undefined}
+                className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", isActivePath(pathname,n.href) ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5", (n as {accent?:boolean}).accent && "font-semibold text-blue-700 dark:text-blue-300")}>
                 <n.icon size={16} aria-hidden />{n.label}</Link></li>
             ))}
-            <li><Link href="/admin" className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname.startsWith("/admin") ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5")}><ShieldCheck size={16} aria-hidden />Admin</Link></li>
+            <li><Link href="/admin" aria-current={pathname.startsWith("/admin")?"page":undefined} className={cx("focus-ring flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm", pathname.startsWith("/admin") ? "bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900" : "hover:bg-gray-100 dark:hover:bg-white/5")}><ShieldCheck size={16} aria-hidden />Admin</Link></li>
           </ul></nav>
           <div className="surface hairline mt-4 rounded-xl border p-3">
             <p className="flex items-center gap-1.5 text-xs font-semibold"><Microscope size={13}/> Contribute</p>
@@ -187,9 +201,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="surface absolute left-0 top-0 h-full w-72 overflow-y-auto border-r hairline p-3 pt-16">
               <nav><ul className="space-y-0.5">
                 {NAV.map(n=>(
-                  <li key={n.href}><Link href={n.href} className={cx("flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[15px]", pathname===n.href?"bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900":"hover:bg-gray-100 dark:hover:bg-white/5")}><n.icon size={17} aria-hidden />{n.label}</Link></li>
+                  <li key={n.href}><Link href={n.href} onClick={()=>setMobileOpen(false)} className={cx("flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[15px]", isActivePath(pathname,n.href)?"bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900":"hover:bg-gray-100 dark:hover:bg-white/5")}><n.icon size={17} aria-hidden />{n.label}</Link></li>
                 ))}
-                <li><Link href="/admin" className="flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[15px] hover:bg-gray-100 dark:hover:bg-white/5"><ShieldCheck size={17} aria-hidden />Admin</Link></li>
+                <li><Link href="/admin" onClick={()=>setMobileOpen(false)} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[15px] hover:bg-gray-100 dark:hover:bg-white/5"><ShieldCheck size={17} aria-hidden />Admin</Link></li>
               </ul></nav>
             </div>
           </div>
@@ -211,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             { href:"/saved", label:"Saved", icon: Bookmark },
             { href:"/academic", label:"Academic", icon: CalendarDays },
           ].map(n=>(
-            <li key={n.href}><Link href={n.href} className={cx("flex flex-col items-center gap-0.5 py-2", pathname===n.href?"text-blue-600 dark:text-blue-400":"muted")} aria-current={pathname===n.href?"page":undefined}><n.icon size={19} aria-hidden />{n.label}</Link></li>
+            <li key={n.href}><Link href={n.href} className={cx("flex flex-col items-center gap-0.5 py-2", isActivePath(pathname,n.href)?"text-blue-600 dark:text-blue-400":"muted")} aria-current={isActivePath(pathname,n.href)?"page":undefined}><n.icon size={19} aria-hidden />{n.label}</Link></li>
           ))}
         </ul>
       </nav>

@@ -1,0 +1,4 @@
+E2E fixture upload — Engineering Mathematics revision pointers.
+1. Matrices: rank, eigenvalues, Cayley-Hamilton.
+2. Calculus: limits, partial differentiation.
+This file exists only to exercise the upload flow in automated tests.

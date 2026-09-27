@@ -11,6 +11,8 @@ export default function AdminSubjects() {
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState({ name:"", code:"", semester:"", department:"Engineering", academicYear:"FE", description:"" });
   const [topicForm, setTopicForm] = useState({ subjectId:"", name:"", description:"" });
+  const [savingSub, setSavingSub] = useState(false);
+  const [savingTop, setSavingTop] = useState(false);
 
   const load = () => {
     fetch("/api/subjects").then(r=>r.json()).then(j=>setItems(j.items||[])).catch(()=>setError("Couldn't load subjects."));
@@ -19,12 +21,16 @@ export default function AdminSubjects() {
   useEffect(load,[]);
 
   const addSubject = async (e: React.FormEvent) => {
-    e.preventDefault(); setMsg(""); setError("");
-    const res = await fetch("/api/subjects", { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() },
-      body: JSON.stringify({ ...form, semester: form.semester?Number(form.semester):null }) });
-    const j = await res.json().catch(()=>({}));
-    if (!res.ok) { setError(j.error||"Save failed. Admin key required (see Settings)."); return; }
-    setMsg("Subject added."); setForm({ name:"", code:"", semester:"", department:"Engineering", academicYear:"FE", description:"" }); load();
+    e.preventDefault();
+    if (savingSub) return;
+    setSavingSub(true); setMsg(""); setError("");
+    try {
+      const res = await fetch("/api/subjects", { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() },
+        body: JSON.stringify({ ...form, semester: form.semester?Number(form.semester):null }) });
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok) { setError(j.error||"Save failed. Admin key required (see Settings)."); return; }
+      setMsg("Subject added."); setForm({ name:"", code:"", semester:"", department:"Engineering", academicYear:"FE", description:"" }); load();
+    } finally { setSavingSub(false); }
   };
   const delSubject = async (id: string) => {
     if (!confirm("Delete this subject? Its resources will be kept but unlinked.")) return;
@@ -32,11 +38,16 @@ export default function AdminSubjects() {
     if (res.ok) { setMsg("Subject deleted."); load(); } else setError("Delete failed.");
   };
   const addTopic = async (e: React.FormEvent) => {
-    e.preventDefault(); setMsg("");
-    const res = await fetch("/api/topics", { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify(topicForm) });
-    if (!res.ok) { setError("Topic save failed. Check admin key."); return; }
-    setMsg("Topic added."); setTopicForm({ subjectId:"", name:"", description:"" });
-    fetch("/api/topics").then(r=>r.json()).then(j=>setTopics(j.items||[]));
+    e.preventDefault();
+    if (savingTop) return;
+    setSavingTop(true); setMsg("");
+    try {
+      const res = await fetch("/api/topics", { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify(topicForm) });
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok) { setError(j.error||"Topic save failed. Check admin key."); return; }
+      setMsg("Topic added."); setTopicForm({ subjectId:"", name:"", description:"" });
+      fetch("/api/topics").then(r=>r.json()).then(j=>setTopics(j.items||[]));
+    } finally { setSavingTop(false); }
   };
 
   const inputCls = "focus-ring surface hairline w-full rounded-lg border px-2.5 py-2 text-sm";
@@ -61,7 +72,7 @@ export default function AdminSubjects() {
               <input value={form.academicYear} onChange={e=>setForm({...form,academicYear:e.target.value})} placeholder="FE/SE/TE/BE" className={inputCls} aria-label="Academic year" />
             </div>
             <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Description" className={inputCls} aria-label="Description" />
-            <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Add subject</button>
+            <button disabled={savingSub} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingSub?"Adding…":"Add subject"}</button>
           </div>
         </form>
         <form onSubmit={addTopic} className="surface hairline rounded-xl border p-4">
@@ -72,7 +83,7 @@ export default function AdminSubjects() {
             </select>
             <input value={topicForm.name} onChange={e=>setTopicForm({...topicForm,name:e.target.value})} placeholder="Topic name *" required className={inputCls} aria-label="Topic name" />
             <input value={topicForm.description} onChange={e=>setTopicForm({...topicForm,description:e.target.value})} placeholder="Description" className={inputCls} aria-label="Topic description" />
-            <button className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-gray-900">Add topic</button>
+            <button disabled={savingTop} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-gray-900">{savingTop?"Adding…":"Add topic"}</button>
           </div>
         </form>
       </div>

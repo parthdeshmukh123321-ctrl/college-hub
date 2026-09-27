@@ -34,6 +34,8 @@ export async function POST(req: Request) {
     const d = String(body.deviceId||req.headers.get("x-device-id")||"local").slice(0,80);
     const resourceId = String(body.resourceId||"");
     if (!resourceId) return NextResponse.json({ error: "resourceId required." }, { status: 400 });
+    const target = await db.select({ id: resources.id }).from(resources).where(eq(resources.id, resourceId)).limit(1);
+    if (!target.length) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     await db.delete(history).where(and(eq(history.deviceId,d), eq(history.resourceId,resourceId)));
     await db.insert(history).values({ id: uid("h"), deviceId: d, resourceId }).onConflictDoNothing();
     // cap at 50
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
       for (const r of extra) await db.delete(history).where(eq(history.id, r.id));
     }
     return NextResponse.json({ ok: true });
-  } catch (e) { console.error(e); return NextResponse.json({ ok: true }); }
+  } catch (e) { console.error(e); return NextResponse.json({ error: "We couldn't save history." }, { status: 500 }); }
 }
 
 export async function DELETE(req: Request) {

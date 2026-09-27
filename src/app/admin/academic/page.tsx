@@ -9,6 +9,7 @@ export default function AdminAcademic() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Record<string, string>[]>([]);
   const [f, setF] = useState<Record<string,string>>({});
+  const [saving, setSaving] = useState(false);
 
   const load = () => {
     fetch(`/api/academic?kind=${kind}`).then(r=>r.json()).then(j=>setItems(j.items||[])).catch(()=>{});
@@ -16,16 +17,20 @@ export default function AdminAcademic() {
   useEffect(load,[kind]);
 
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setMsg(""); setError("");
-    const res = await fetch(`/api/academic?kind=${kind}`, { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify({ ...f, isOfficial: f.isOfficial==="1" }) });
-    const j = await res.json().catch(()=>({}));
-    if (!res.ok) { setError(j.error||"Save failed. Admin key required."); return; }
-    setMsg("Entry added."); setF({}); load();
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true); setMsg(""); setError("");
+    try {
+      const res = await fetch(`/api/academic?kind=${kind}`, { method:"POST", headers:{ "Content-Type":"application/json", ...adminHeaders() }, body: JSON.stringify({ ...f, isOfficial: f.isOfficial==="1" }) });
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok) { setError(j.error||"Save failed. Admin key required."); return; }
+      setMsg("Entry added."); setF({}); load();
+    } finally { setSaving(false); }
   };
   const del = async (id: string) => {
     if (!confirm("Delete this entry?")) return;
-    await fetch(`/api/academic?kind=${kind}&id=${id}`, { method:"DELETE", headers: adminHeaders() });
-    load();
+    const res = await fetch(`/api/academic?kind=${kind}&id=${id}`, { method:"DELETE", headers: adminHeaders() });
+    if (res.ok) { setMsg("Entry deleted."); load(); } else setError("Delete failed.");
   };
 
   const inputCls = "focus-ring surface hairline w-full rounded-lg border px-2.5 py-2 text-sm";
@@ -79,7 +84,7 @@ export default function AdminAcademic() {
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.isOfficial==="1"} onChange={e=>set("isOfficial",e.target.checked?"1":"")} /> Official (only if from college/university source)</label>
           )}
         </div>
-        <button className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Add entry</button>
+        <button disabled={saving} className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving?"Adding…":"Add entry"}</button>
       </form>
 
       <div className="surface hairline mt-3 rounded-xl border p-4">

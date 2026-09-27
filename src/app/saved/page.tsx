@@ -14,18 +14,19 @@ export default function SavedPage() {
   const [error, setError] = useState("");
   const [typeF, setTypeF] = useState("");
   const [q, setQ] = useState("");
-  const { ids: saved, toggle } = useSavedIds();
+  const { toggle } = useSavedIds();
   const [refresh, setRefresh] = useState(0);
 
   useEffect(()=>{
-    setLoading(true);
-    fetch(`/api/bookmarks?deviceId=${getDeviceId()}`).then(async r=>{ if(!r.ok) throw new Error(); const j=await r.json(); setItems(j.items||[]); })
+    fetch(`/api/bookmarks?deviceId=${getDeviceId()}`).then(async r=>{ if(!r.ok) throw new Error(); const j=await r.json(); setItems(j.items||[]); setError(""); })
       .catch(()=>setError("We couldn't load saved resources.")).finally(()=>setLoading(false));
   },[refresh]);
 
+  const retry = () => { setLoading(true); setError(""); setRefresh(x=>x+1); };
+
   const onToggle = async (id: string, next: boolean) => {
-    await toggle(id, next);
-    if (!next) setItems(prev=>prev.filter(x=>x.id!==id));
+    const ok = await toggle(id, next);
+    if (ok && !next) setItems(prev=>prev.filter(x=>x.id!==id));
   };
 
   const types = [...new Set(items.map(i=>i.resourceType))];
@@ -45,11 +46,11 @@ export default function SavedPage() {
         </div>
       )}
       <div className="mt-4">
-        {error ? <ErrorBox message={error} onRetry={()=>setRefresh(x=>x+1)} />
+        {error ? <ErrorBox message={error} onRetry={retry} />
         : loading ? <div className="grid gap-3 sm:grid-cols-2">{Array.from({length:4}).map((_,i)=><ResourceSkeleton key={i}/>)}</div>
         : items.length===0 ? <EmptyState icon={<Bookmark size={28}/>} title="No saved resources yet." body="Save resources here so you can find them quickly later." action={<Link href="/resources" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Browse resources</Link>} />
         : filtered.length===0 ? <EmptyState title="No matches" body="Try a different filter." />
-        : <div className="grid gap-3 sm:grid-cols-2">{filtered.map(r=><ResourceCard key={r.id} r={r} saved={saved.has(r.id)||true} onToggleSave={onToggle}/>)}</div>}
+        : <div className="grid gap-3 sm:grid-cols-2">{filtered.map(r=><ResourceCard key={r.id} r={r} saved onToggleSave={onToggle}/>)}</div>}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { db, reports, resources, adminKeyOk } from "@/lib/repo";
 import { uid } from "@/lib/utils";
 import { eq, desc } from "drizzle-orm";
 import { REPORT_REASONS } from "@/lib/types";
+import { rateLimitOk } from "@/lib/rateLimit";
 
 export async function GET(req: Request) {
   try {
@@ -21,6 +22,9 @@ export async function POST(req: Request) {
     const reason = String(body.reason||"");
     if (!resourceId) return NextResponse.json({ error: "Resource is required." }, { status: 400 });
     if (!REPORT_REASONS.includes(reason as never)) return NextResponse.json({ error: "Choose a valid reason." }, { status: 400 });
+    if (!rateLimitOk(req, "reports-post", 15, 60_000)) return NextResponse.json({ error: "Too many reports. Please try again later." }, { status: 429 });
+    const target = await db.select({ id: resources.id }).from(resources).where(eq(resources.id, resourceId)).limit(1);
+    if (!target.length) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     // rate limit: max 5 open reports per resource per reporter per hour (simple check)
     const existing = await db.select().from(reports).where(eq(reports.resourceId, resourceId)).limit(50);
     const recent = existing.filter(r=>r.reporterId===String(body.reporterId||"local") && (+new Date()-+r.createdAt)<3600_000);

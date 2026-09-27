@@ -7,7 +7,7 @@ import { RESOURCE_TYPES, RESOURCE_TYPE_LABELS, CLASSIFICATIONS, type Subject, ty
 import { adminHeaders, getDeviceId } from "@/lib/utils";
 import { Breadcrumbs, ErrorBox } from "@/components/ui";
 
-const YEARS = (()=>{ const y=new Date().getFullYear(); return Array.from({length:10},(_,i)=>y-i); })();
+const YEARS = (()=>{ const y=new Date().getFullYear(); const arr:number[]=[]; for (let i=y;i>=1990;i--) arr.push(i); return arr; })();
 
 function AddInner() {
   const router = useRouter();
@@ -24,14 +24,19 @@ function AddInner() {
   const [notice, setNotice] = useState("");
   const [globalErr, setGlobalErr] = useState("");
 
+  const [prevSub, setPrevSub] = useState(form.subjectId);
+  if (form.subjectId !== prevSub) { setPrevSub(form.subjectId); if (!form.subjectId) setTopics([]); }
   useEffect(()=>{ fetch("/api/subjects").then(r=>r.json()).then(j=>setSubjects(j.items||[])).catch(()=>{}); },[]);
   useEffect(()=>{
-    if (!form.subjectId) { setTopics([]); return; }
+    if (!form.subjectId) return;
     fetch(`/api/topics?subjectId=${form.subjectId}`).then(r=>r.json()).then(j=>setTopics(j.items||[])).catch(()=>{});
   },[form.subjectId]);
   useEffect(()=>{
     if (!editId) return;
-    fetch(`/api/resources/${editId}`).then(async r=>{ if(!r.ok) return; const j=await r.json(); const x=j.resource;
+    fetch(`/api/resources/${editId}`).then(async r=>{
+      if (r.status===404) { setGlobalErr("The resource you're editing no longer exists."); return; }
+      if(!r.ok) return;
+      const j=await r.json(); const x=j.resource;
       if (x) {
         setForm({ title:x.title||"", resourceType:x.resourceType||"NOTE", subjectId:x.subjectId||"", topic:x.topic||"", topicId:x.topicId||"", description:x.description||"", semester:x.semester?String(x.semester):"", academicYear:x.academicYear||"FE", year:x.year?String(x.year):"", examType:x.examType||"", tags:(x.tags||[]).join(", "), sourceType:x.sourceType||"EXTERNAL_URL", sourceClassification:x.sourceClassification||"STUDENT", url:x.url||"", author:x.author||"", contributorName:x.contributorName||"" });
         if (x.fileId) setFile({ id:x.fileId, fileName:x.fileName||"file", fileMime:x.fileMime||"", fileSize:x.fileSize||0 });
@@ -76,7 +81,13 @@ function AddInner() {
       const j = await res.json();
       if (!res.ok) { setErrors(j.errors||{}); setGlobalErr(j.error || "Couldn't save. Check the form."); return; }
       if (j.warning) setNotice(j.warning);
-      if (editId) { router.push(`/resources/${editId}`); return; }
+      if (editId) {
+        if (j.status === "PENDING_REVIEW") {
+          setNotice("Your edit was saved and sent for review. It will reappear publicly once an admin approves it.");
+          return;
+        }
+        router.push(`/resources/${editId}`); return;
+      }
       if (j.status === "PENDING_REVIEW") {
         setNotice("Submitted for review. An admin will approve it before it appears publicly.");
         setForm(f=>({ ...f, title:"", description:"", url:"", tags:"", topic:"" })); setFile(null);
@@ -108,10 +119,11 @@ function AddInner() {
               <select id="a-type" value={form.resourceType} onChange={e=>set("resourceType",e.target.value)} className={inputCls}>
                 {RESOURCE_TYPES.map(t=><option key={t} value={t}>{RESOURCE_TYPE_LABELS[t]}</option>)}
               </select>{errors.resourceType && <p className={errCls}>{errors.resourceType}</p>}</div>
-            <div><label htmlFor="a-sub" className={labelCls}>Subject *</label>
-              <select id="a-sub" value={form.subjectId} onChange={e=>set("subjectId",e.target.value)} className={inputCls} required>
-                <option value="">Choose subject…</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-              </select></div>
+            <div><label htmlFor="a-sub" className={labelCls}>Subject</label>
+              <select id="a-sub" value={form.subjectId} onChange={e=>set("subjectId",e.target.value)} className={inputCls}>
+                <option value="">No subject (uncategorized)</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+              </select>
+              <p className="muted mt-1 text-[11px]">Optional — picking a subject helps others find this.</p></div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div><label htmlFor="a-topic" className={labelCls}>Topic</label>
@@ -133,7 +145,7 @@ function AddInner() {
             {errors.description && <p className={errCls}>{errors.description}</p>}</div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div><label htmlFor="a-sem" className={labelCls}>Semester</label>
-              <select id="a-sem" value={form.semester} onChange={e=>set("semester",e.target.value)} className={inputCls}><option value="">—</option>{[1,2,3,4,5,6,7,8].map(n=><option key={n} value={n}>{n}</option>)}</select></div>
+              <select id="a-sem" value={form.semester} onChange={e=>set("semester",e.target.value)} className={inputCls}><option value="">—</option>{[1,2,3,4,5,6,7,8,9,10,11,12].map(n=><option key={n} value={n}>{n}</option>)}</select></div>
             <div><label htmlFor="a-year" className={labelCls}>Year</label>
               <select id="a-year" value={form.year} onChange={e=>set("year",e.target.value)} className={inputCls}><option value="">—</option>{YEARS.map(y=><option key={y} value={y}>{y}</option>)}</select>
               {errors.year && <p className={errCls}>{errors.year}</p>}</div>

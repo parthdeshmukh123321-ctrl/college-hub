@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, files } from "@/lib/repo";
 import { validateFileUpload, sanitizeFilename } from "@/lib/validation";
+import { rateLimitOk } from "@/lib/rateLimit";
 import { uid } from "@/lib/utils";
 import { eq } from "drizzle-orm";
 import { promises as fs } from "fs";
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
     const form = await req.formData();
     const f = form.get("file");
     if (!f || !(f instanceof Blob)) return NextResponse.json({ error: "No file provided." }, { status: 400 });
+    if (!rateLimitOk(req, "files-post", 20, 60_000)) return NextResponse.json({ error: "Too many uploads. Please slow down." }, { status: 429 });
     const origName = (form.get("filename") as string) || (f as unknown as { name?: string }).name || "upload";
     const mime = f.type || "application/octet-stream";
     const ext = (sanitizeFilename(origName).split(".").pop() || "").toLowerCase();
